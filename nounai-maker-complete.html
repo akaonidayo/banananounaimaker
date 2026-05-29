@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>元祖・脳内メーカー（完全再現版）</title>
+  <style>
+    body {
+      background-color: #fff9e6;
+      font-family: "Hiragino Maru Gothic ProN", "Yu Gothic", sans-serif;
+      color: #444;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+    }
+
+    .main-card {
+      background: #fff;
+      border: 3px solid #ffcc00;
+      border-radius: 20px;
+      padding: 25px;
+      width: min(94vw, 760px);
+      max-width: 760px;
+      box-shadow: 8px 8px 0 #ffcc00;
+      text-align: center;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      color: #ff6600;
+      margin: 0 0 10px;
+    }
+
+    .desc {
+      font-size: 0.8rem;
+      margin: 0 0 20px;
+      color: #888;
+    }
+
+    input[type="text"] {
+      width: 70%;
+      padding: 10px;
+      border: 2px solid #ddd;
+      border-radius: 10px;
+      font-size: 20px;
+      outline: none;
+      background: #fafafa;
+    }
+
+    button {
+      margin-top: 15px;
+      background: #ff6600;
+      color: #fff;
+      border: none;
+      padding: 10px 25px;
+      border-radius: 50px;
+      font-weight: bold;
+      cursor: pointer;
+      box-shadow: 0 4px 0 #cc5200;
+      position: relative;
+      z-index: 5;
+      touch-action: manipulation;
+    }
+
+    button:active {
+      transform: translateY(2px);
+      box-shadow: 0 2px 0 #cc5200;
+    }
+
+    #result-area {
+      display: none;
+      margin-top: 25px;
+    }
+
+    #res-title {
+      margin: 10px 0;
+      color: #ff3366;
+    }
+
+    #brain-box {
+      position: relative;
+      width: min(100%, 640px);
+      aspect-ratio: 1 / 1;
+      margin: 10px auto;
+      background-image: url("nounai-head.png");
+      background-position: center;
+      background-repeat: no-repeat;
+      background-size: contain;
+      overflow: hidden;
+    }
+
+    .word-token {
+      position: absolute;
+      z-index: 2;
+      display: grid;
+      place-items: center;
+      width: var(--cell-w);
+      height: var(--cell-h);
+      font-size: 28px;
+      font-weight: 900;
+      line-height: 1;
+      white-space: nowrap;
+      user-select: none;
+      transform-origin: center;
+      opacity: 0;
+      animation: fadeIn 0.25s ease-out forwards;
+    }
+
+    @keyframes fadeIn {
+      0% {
+        opacity: 0;
+      }
+      100% {
+        opacity: 1;
+      }
+    }
+
+    .footer-note {
+      font-size: 11px;
+      color: #aaa;
+      margin-top: 20px;
+      line-height: 1.4;
+    }
+
+    @media (max-width: 360px) {
+      .main-card { padding: 16px; }
+      .word-token { font-size: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="main-card">
+    <h1>脳内メーカー</h1>
+    <p class="desc">名前を入れて「のぞく」を押してね</p>
+
+    <input type="text" id="targetName" placeholder="ここになまえ" maxlength="10">
+    <br>
+    <button id="analyzeButton" type="button">脳内をのぞく</button>
+
+    <div id="result-area">
+      <h3 id="res-title"></h3>
+      <div class="brain-display" id="brain-box"></div>
+    </div>
+  </div>
+
+  <script>
+    // ===== 色固定設定 =====
+    // 文字ごとに完全固定色
+    const KANJI_COLORS = {
+      "愛": "#ff4d88",
+      "金": "#d5a600",
+      "欲": "#ff8800",
+      "休": "#45aa77",
+      "遊": "#ff9933",
+      "秘": "#7a3db8",
+      "嘘": "#555555",
+      "酒": "#8b4513",
+      "夢": "#4d8dff",
+      "働": "#4444aa",
+      "H": "#ff0000",
+      "Ｈ": "#ff0000",
+      "謎": "#222222",
+      "楽": "#e2a900",
+      "私": "#ff6699",
+      "猫": "#cc9966",
+      "毒": "#663300",
+      "妄": "#cc00cc",
+      "運": "#33aa33",
+      "食": "#ff6600",
+      "悩": "#3366cc",
+      "国": "#009966",
+      "指": "#999900",
+      "友": "#18aeb5",
+      "怒": "#cc0000",
+      "泣": "#3399ff",
+      "理": "#0066ff",
+      "考": "#003399",
+      "学": "#0066aa",
+      "眠": "#7777bb",
+      "隠": "#555577",
+      "空": "#aaaaaa",
+      "無": "#bbbbbb"
+    };
+
+    // ===== 超重要：脳マスク =====
+    // 1 = 描画可能 / 0 = 空白
+    // 添付画像中央上の枠内へ収めるため、円状に近い8列 x 5行の配置枠を使う。
+    const BRAIN_MASK = [
+      "00111100",
+      "01111110",
+      "11111111",
+      "01111110",
+      "00111100"
+    ];
+
+    const TEXT_AREA = {
+      left: 0.29,
+      top: 0.15,
+      width: 0.5,
+      height: 0.32
+    };
+
+    // ===== 構造テンプレート =====
+    const STRUCTURES = [
+      { name: "単一支配型", type: "single" },
+      { name: "多数＋少数型", type: "major_minor" },
+      { name: "中央核心型", type: "core" },
+      { name: "リング型", type: "ring" },
+      { name: "左右分離型", type: "left_right" },
+      { name: "上下分離型", type: "top_bottom" },
+      { name: "対角線型", type: "diagonal" },
+      { name: "島型", type: "island" },
+      { name: "外周囲み型", type: "outer" },
+      { name: "放射型", type: "radial" },
+      { name: "分断型", type: "split" },
+      { name: "モザイク型", type: "mosaic" },
+      { name: "階層型", type: "layers" },
+      { name: "空洞型", type: "hollow" }
+    ];
+
+    // ===== 漢字カテゴリ =====
+    const DESIRE = ["欲", "金", "食", "H", "遊"];
+    const EMOTION = ["愛", "友", "悩", "泣", "怒"];
+    const SECRET = ["秘", "嘘", "隠"];
+    const THINK = ["考", "学", "理"];
+    const FUN = ["酒", "休", "眠", "楽"];
+    const EXTREME = ["H", "食", "遊", "金"];
+
+    const ALL_KANJI = [
+      ...DESIRE,
+      ...EMOTION,
+      ...SECRET,
+      ...THINK,
+      ...FUN
+    ];
+
+    // ===== seed生成 =====
+    function hashName(name) {
+      let hash = 2166136261;
+
+      for (let i = 0; i < name.length; i++) {
+        hash ^= name.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+      }
+
+      return hash >>> 0;
+    }
+
+    // ===== 乱数 =====
+    function seeded(seed) {
+      let value = seed >>> 0;
+
+      return function rand() {
+        value += 0x6D2B79F5;
+        let t = value;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+    function pick(list, rand) {
+      return list[Math.floor(rand() * list.length)];
+    }
+
+    function pickDifferent(list, blocked, rand) {
+      const choices = list.filter((char) => !blocked.includes(char));
+      return pick(choices.length ? choices : list, rand);
+    }
+
+    function isEdgeCell(x, y) {
+      const rows = BRAIN_MASK.length;
+      const cols = BRAIN_MASK[0].length;
+      const neighbors = [
+        [0, -1],
+        [1, 0],
+        [0, 1],
+        [-1, 0]
+      ];
+
+      return neighbors.some(([dx, dy]) => {
+        const nx = x + dx;
+        const ny = y + dy;
+        return nx < 0 || ny < 0 || nx >= cols || ny >= rows || BRAIN_MASK[ny][nx] === "0";
+      });
+    }
+
+    function getBrainCells() {
+      const rows = BRAIN_MASK.length;
+      const cols = BRAIN_MASK[0].length;
+      const centerX = (cols - 1) / 2;
+      const centerY = (rows - 1) / 2;
+      const cells = [];
+
+      for (let y = 0; y < rows; y++) {
+        for (let x = 0; x < cols; x++) {
+          if (BRAIN_MASK[y][x] !== "1") continue;
+
+          const nx = (x - centerX) / centerX;
+          const ny = (y - centerY) / centerY;
+          const dist = Math.sqrt(nx * nx + ny * ny);
+
+          cells.push({
+            x,
+            y,
+            nx,
+            ny,
+            dist,
+            edge: isEdgeCell(x, y)
+          });
+        }
+      }
+
+      return cells;
+    }
+
+    function chooseKanji(seed, rand, structure) {
+      const exactPatterns = {
+        single: {
+          main: EXTREME[seed % EXTREME.length],
+          sub: EXTREME[seed % EXTREME.length],
+          core: EXTREME[seed % EXTREME.length]
+        },
+        major_minor: { main: "食", sub: "遊", core: "食" },
+        core: { main: "秘", sub: "秘", core: "H", extra: "愛" },
+        ring: { main: "秘", sub: "H", core: "愛" },
+        left_right: { main: "理", sub: "遊", core: "悩" },
+        top_bottom: { main: pick(EMOTION, rand), sub: pick(DESIRE, rand), core: "悩" },
+        diagonal: { main: "考", sub: "学", core: "理" },
+        island: { main: "遊", sub: "秘", core: "悩" },
+        outer: { main: "嘘", sub: "嘘", core: "愛" },
+        radial: { main: "遊", sub: "欲", core: "怒" },
+        split: { main: "理", sub: "欲", core: "悩" },
+        mosaic: { main: "食", sub: "遊", core: "秘" },
+        layers: { main: "理", sub: "友", core: "欲" },
+        hollow: { main: "休", sub: "眠", core: "無" }
+      };
+
+      if (exactPatterns[structure.type]) {
+        return exactPatterns[structure.type];
+      }
+
+      let pool = ALL_KANJI;
+
+      if (seed % 5 === 0) pool = DESIRE;
+      if (seed % 5 === 1) pool = EMOTION;
+      if (seed % 5 === 2) pool = SECRET;
+      if (seed % 5 === 3) pool = THINK;
+      if (seed % 5 === 4) pool = FUN;
+
+      let main = pick(pool, rand);
+      let sub = pickDifferent(ALL_KANJI, [main], rand);
+      let core = pickDifferent(ALL_KANJI, [main, sub], rand);
+
+      // 本物っぽい極端結果を一定確率で優先する。
+      if (seed % 11 === 0) main = EXTREME[seed % EXTREME.length];
+      if (seed % 13 === 0) core = "愛";
+      if (seed % 17 === 0) sub = "秘";
+
+      if (sub === main) sub = pickDifferent(ALL_KANJI, [main], rand);
+      if (core === main || core === sub) core = pickDifferent(ALL_KANJI, [main, sub], rand);
+
+      return { main, sub, core };
+    }
+
+    function buildIsland(rand) {
+      return {
+        x: rand() * 0.9 - 0.45,
+        y: rand() * 0.55 - 0.25,
+        rx: 0.13 + rand() * 0.08,
+        ry: 0.12 + rand() * 0.08
+      };
+    }
+
+    function insideIsland(cell, island) {
+      return Math.abs(cell.nx - island.x) <= island.rx &&
+        Math.abs(cell.ny - island.y) <= island.ry;
+    }
+
+    function cellKey(cell) {
+      return `${cell.x},${cell.y}`;
+    }
+
+    function addUniqueCell(target, seen, cell) {
+      if (!cell) return;
+
+      const key = cellKey(cell);
+      if (seen.has(key)) return;
+
+      seen.add(key);
+      target.push(cell);
+    }
+
+    function closestCells(cells, count, scorer) {
+      return [...cells]
+        .sort((a, b) => scorer(a) - scorer(b))
+        .slice(0, count);
+    }
+
+    function sampledCells(cells, count, rand, scorer = () => 0) {
+      return [...cells]
+        .map((cell) => ({ cell, score: scorer(cell) + rand() * 0.7 }))
+        .sort((a, b) => a.score - b.score)
+        .slice(0, count)
+        .map((item) => item.cell);
+    }
+
+    function selectDisplayCells(allCells, structure, rand) {
+      const selected = [];
+      const seen = new Set();
+      const addMany = (cells) => cells.forEach((cell) => addUniqueCell(selected, seen, cell));
+      const fill = (count, pool = allCells) => {
+        addMany(sampledCells(pool, count * 3, rand, (cell) => cell.dist * 0.15));
+      };
+
+      switch (structure.type) {
+        case "single":
+        case "major_minor":
+        case "mosaic":
+          fill(30);
+          break;
+
+        case "core":
+          addMany(closestCells(allCells, 3, (cell) => cell.dist));
+          addMany(closestCells(allCells, 12, (cell) => Math.abs(cell.dist - 0.32)));
+          fill(15);
+          break;
+
+        case "ring":
+          addMany(sampledCells(allCells.filter((cell) => cell.edge || cell.dist > 0.82), 16, rand));
+          addMany(closestCells(allCells, 4, (cell) => cell.dist));
+          addMany(closestCells(allCells, 10, (cell) => Math.abs(cell.dist - 0.52)));
+          break;
+
+        case "left_right":
+          addMany(sampledCells(allCells.filter((cell) => cell.nx < -0.08), 14, rand));
+          addMany(sampledCells(allCells.filter((cell) => cell.nx > 0.08), 14, rand));
+          addMany(closestCells(allCells, 2, (cell) => Math.abs(cell.nx)));
+          break;
+
+        case "top_bottom":
+          addMany(sampledCells(allCells.filter((cell) => cell.ny < -0.08), 14, rand));
+          addMany(sampledCells(allCells.filter((cell) => cell.ny > 0.08), 14, rand));
+          addMany(closestCells(allCells, 2, (cell) => Math.abs(cell.ny)));
+          break;
+
+        case "diagonal":
+          addMany(closestCells(allCells, 12, (cell) => Math.abs(cell.nx - cell.ny)));
+          addMany(sampledCells(allCells, 18, rand, (cell) => Math.abs(cell.nx + cell.ny) * 0.25));
+          break;
+
+        case "island":
+          addMany(closestCells(allCells, 5, (cell) => Math.abs(cell.nx + 0.28) + Math.abs(cell.ny - 0.12)));
+          addMany(closestCells(allCells, 5, (cell) => Math.abs(cell.nx - 0.36) + Math.abs(cell.ny + 0.18)));
+          fill(20);
+          break;
+
+        case "outer":
+          addMany(sampledCells(allCells.filter((cell) => cell.edge || cell.dist > 0.82), 24, rand));
+          addMany(closestCells(allCells, 5, (cell) => cell.dist));
+          fill(1);
+          break;
+
+        case "radial":
+          addMany(closestCells(allCells, 5, (cell) => cell.dist));
+          addMany(closestCells(allCells, 10, (cell) => Math.abs(cell.dist - 0.45)));
+          addMany(closestCells(allCells, 15, (cell) => Math.abs(cell.dist - 0.76)));
+          break;
+
+        case "split":
+          addMany(closestCells(allCells, 6, (cell) => Math.abs(cell.nx)));
+          addMany(sampledCells(allCells.filter((cell) => cell.nx < -0.08), 12, rand));
+          addMany(sampledCells(allCells.filter((cell) => cell.nx > 0.08), 12, rand));
+          break;
+
+        case "layers":
+          addMany(sampledCells(allCells.filter((cell) => cell.ny < -0.34), 10, rand));
+          addMany(sampledCells(allCells.filter((cell) => cell.ny >= -0.34 && cell.ny < 0.26), 10, rand));
+          addMany(sampledCells(allCells.filter((cell) => cell.ny >= 0.26), 10, rand));
+          break;
+
+        case "hollow":
+          addMany(sampledCells(allCells.filter((cell) => cell.edge || cell.dist > 0.78), 18, rand));
+          addMany(sampledCells(allCells.filter((cell) => cell.dist >= 0.36 && cell.dist <= 0.7), 10, rand));
+          break;
+
+        default:
+          fill(30);
+      }
+
+      if (selected.length < 24 && structure.type !== "hollow") {
+        fill(30 - selected.length);
+      }
+
+      return selected.slice(0, 30);
+    }
+
+    function distanceToPoint(cell, x, y) {
+      return Math.hypot(cell.nx - x, cell.ny - y);
+    }
+
+    function makeCluster(rand, x = rand() * 0.9 - 0.45, y = rand() * 0.7 - 0.35) {
+      return {
+        x,
+        y,
+        rx: 0.28 + rand() * 0.12,
+        ry: 0.22 + rand() * 0.1
+      };
+    }
+
+    function clusterScore(cell, cluster) {
+      const dx = (cell.nx - cluster.x) / cluster.rx;
+      const dy = (cell.ny - cluster.y) / cluster.ry;
+      return dx * dx + dy * dy;
+    }
+
+    function clusterCells(cells, count, cluster, rand) {
+      return [...cells]
+        .map((cell) => ({ cell, score: clusterScore(cell, cluster) + rand() * 0.18 }))
+        .sort((a, b) => a.score - b.score)
+        .slice(0, count)
+        .map((item) => item.cell);
+    }
+
+    function putPlan(plan, cells, char) {
+      cells.forEach((cell) => plan.set(cellKey(cell), char));
+    }
+
+    function buildCharacterPlan(cells, context) {
+      const { structure, main, sub, core, extra, rand, extraCell } = context;
+      const plan = new Map();
+      const total = cells.length;
+      const centerCluster = makeCluster(rand, 0, 0);
+      const subCluster = makeCluster(rand);
+      const coreCluster = makeCluster(rand, rand() * 0.5 - 0.25, rand() * 0.42 - 0.21);
+
+      putPlan(plan, cells, main);
+
+      switch (structure.type) {
+        case "single":
+          break;
+
+        case "major_minor": {
+          const subCount = Math.max(1, total - Math.round(total * 0.9));
+          putPlan(plan, clusterCells(cells, subCount, subCluster, rand), sub);
+          break;
+        }
+
+        case "core":
+          putPlan(plan, clusterCells(cells, Math.max(1, Math.round(total * 0.12)), centerCluster, rand), core);
+          putPlan(plan, clusterCells(cells, Math.max(5, Math.round(total * 0.42)), makeCluster(rand, 0, 0.02), rand), sub);
+          if (extraCell) plan.set(cellKey(extraCell), extra);
+          break;
+
+        case "ring":
+          putPlan(plan, cells, sub);
+          putPlan(plan, cells.filter((cell) => cell.edge || cell.dist > 0.82), main);
+          putPlan(plan, clusterCells(cells, Math.max(2, Math.round(total * 0.14)), centerCluster, rand), core);
+          break;
+
+        case "left_right": {
+          putPlan(plan, cells, sub);
+          putPlan(plan, clusterCells(cells.filter((cell) => cell.nx < 0.2), Math.round(total * 0.52), makeCluster(rand, -0.33, rand() * 0.3 - 0.15), rand), main);
+          putPlan(plan, clusterCells(cells, Math.max(1, Math.round(total * 0.08)), makeCluster(rand, 0.02, 0), rand), core);
+          break;
+        }
+
+        case "top_bottom": {
+          putPlan(plan, cells, sub);
+          putPlan(plan, clusterCells(cells.filter((cell) => cell.ny < 0.22), Math.round(total * 0.52), makeCluster(rand, rand() * 0.4 - 0.2, -0.26), rand), main);
+          putPlan(plan, clusterCells(cells, Math.max(1, Math.round(total * 0.08)), makeCluster(rand, 0, 0.02), rand), core);
+          break;
+        }
+
+        case "diagonal":
+          putPlan(plan, clusterCells(cells, Math.round(total * 0.42), makeCluster(rand, -0.22, -0.18), rand), core);
+          putPlan(plan, clusterCells(cells, Math.round(total * 0.28), makeCluster(rand, 0.33, 0.18), rand), sub);
+          break;
+
+        case "island":
+          putPlan(plan, clusterCells(cells, Math.max(3, Math.round(total * 0.2)), makeCluster(rand, -0.28, 0.16), rand), sub);
+          putPlan(plan, clusterCells(cells, Math.max(3, Math.round(total * 0.18)), makeCluster(rand, 0.34, -0.18), rand), core);
+          break;
+
+        case "outer":
+          putPlan(plan, cells, main);
+          putPlan(plan, clusterCells(cells, Math.max(2, Math.round(total * 0.16)), centerCluster, rand), core);
+          break;
+
+        case "radial":
+          putPlan(plan, cells.filter((cell) => cell.dist >= 0.48), main);
+          putPlan(plan, clusterCells(cells, Math.round(total * 0.36), makeCluster(rand, 0, 0), rand), sub);
+          putPlan(plan, clusterCells(cells, Math.max(2, Math.round(total * 0.16)), centerCluster, rand), core);
+          break;
+
+        case "split":
+          putPlan(plan, cells, sub);
+          putPlan(plan, clusterCells(cells.filter((cell) => cell.nx < 0.22), Math.round(total * 0.45), makeCluster(rand, -0.3, rand() * 0.26 - 0.13), rand), main);
+          putPlan(plan, clusterCells(cells, Math.max(3, Math.round(total * 0.18)), makeCluster(rand, 0, rand() * 0.2 - 0.1), rand), core);
+          break;
+
+        case "mosaic":
+          putPlan(plan, cells, pick(ALL_KANJI, rand));
+          [main, sub, core, pick(ALL_KANJI, rand)].forEach((char) => {
+            putPlan(plan, clusterCells(cells, Math.max(4, Math.round(total * 0.24)), makeCluster(rand), rand), char);
+          });
+          break;
+
+        case "layers":
+          putPlan(plan, cells, sub);
+          putPlan(plan, clusterCells(cells.filter((cell) => cell.ny < 0.08), Math.round(total * 0.34), makeCluster(rand, rand() * 0.3 - 0.15, -0.26), rand), main);
+          putPlan(plan, clusterCells(cells.filter((cell) => cell.ny > -0.08), Math.round(total * 0.34), makeCluster(rand, rand() * 0.3 - 0.15, 0.28), rand), core);
+          break;
+
+        case "hollow":
+          putPlan(plan, cells.filter((cell) => cell.dist > 0.55), main);
+          putPlan(plan, clusterCells(cells.filter((cell) => cell.dist > 0.34), Math.round(total * 0.38), subCluster, rand), sub);
+          break;
+      }
+
+      return plan;
+    }
+
+    function getCharForCell(cell, context) {
+      const { structure, main, sub, core, extra, rand, islandA, islandB, extraCell, displayTotal } = context;
+      const absX = Math.abs(cell.nx);
+      const absY = Math.abs(cell.ny);
+      const center = absX < 0.15 && absY < 0.18;
+      const centerArea = absX < 0.34 && absY < 0.34;
+      const diagonal = Math.abs(cell.nx - cell.ny) < 0.18;
+      const reverseDiagonal = Math.abs(cell.nx + cell.ny) < 0.15;
+
+      switch (structure.type) {
+        case "single":
+          return main;
+
+        case "major_minor":
+          return cell.displayIndex < Math.round(displayTotal * 0.9) ? main : sub;
+
+        case "core":
+          if (extraCell && cell.x === extraCell.x && cell.y === extraCell.y) return extra;
+          if (center) return core;
+          if (centerArea) return sub;
+          return main;
+
+        case "ring":
+          if (cell.edge || cell.dist > 0.82) return main;
+          if (center) return core;
+          return sub;
+
+        case "left_right":
+          if (absX < 0.08) return rand() < 0.5 ? core : sub;
+          return cell.nx < 0 ? main : sub;
+
+        case "top_bottom":
+          if (absY < 0.08) return rand() < 0.45 ? core : sub;
+          return cell.ny < 0 ? main : sub;
+
+        case "diagonal":
+          if (diagonal || (reverseDiagonal && rand() < 0.45)) return core;
+          return cell.nx > cell.ny ? main : sub;
+
+        case "island":
+          if (insideIsland(cell, islandA)) return core;
+          if (insideIsland(cell, islandB)) return sub;
+          return rand() < 0.96 ? main : sub;
+
+        case "outer":
+          if (center) return core;
+          return main;
+
+        case "radial":
+          if (cell.dist < 0.22) return core;
+          if (cell.dist < 0.48) return sub;
+          return main;
+
+        case "split":
+          if (absX < 0.1) return core;
+          return cell.nx < 0 ? main : sub;
+
+        case "mosaic": {
+          const r = rand();
+          if (r < 0.34) return main;
+          if (r < 0.63) return sub;
+          if (r < 0.82) return core;
+          return pick(ALL_KANJI, rand);
+        }
+
+        case "layers":
+          if (cell.ny < -0.34) return main;
+          if (cell.ny < 0.26) return sub;
+          return core;
+
+        case "hollow":
+          if (cell.dist < 0.3) return core;
+          if (cell.edge || cell.dist > 0.78) return main;
+          return sub;
+
+        default:
+          return main;
+      }
+    }
+
+    function setResultNote(structure, chars, counts) {
+      const note = document.getElementById("result-note");
+
+      if (!note) return;
+
+      note.innerHTML = "";
+
+      [
+        structure.name,
+        `支配:${chars.main} ${counts[chars.main] || 0}`,
+        `核心:${chars.core} ${counts[chars.core] || 0}`,
+        `少数:${chars.sub} ${counts[chars.sub] || 0}`
+      ].forEach((text) => {
+        const span = document.createElement("span");
+        span.innerText = text;
+        note.appendChild(span);
+      });
+    }
+
+    // ===== メイン =====
+    function analyze() {
+      const name = document.getElementById("targetName").value.trim();
+
+      if (!name) return;
+
+      const brain = document.getElementById("brain-box");
+      const resultArea = document.getElementById("result-area");
+      const title = document.getElementById("res-title");
+
+      brain.innerHTML = "";
+      resultArea.style.display = "block";
+      title.innerText = `${name}の脳内`;
+
+      const seed = hashName(name);
+      const rand = seeded(seed);
+      const structure = STRUCTURES[seed % STRUCTURES.length];
+      const chars = chooseKanji(seed, rand, structure);
+      const rows = BRAIN_MASK.length;
+      const cols = BRAIN_MASK[0].length;
+      const allCells = getBrainCells();
+      const cells = selectDisplayCells(allCells, structure, rand);
+      cells.forEach((cell, index) => {
+        cell.displayIndex = index;
+      });
+      const areaLeft = brain.clientWidth * TEXT_AREA.left;
+      const areaTop = brain.clientHeight * TEXT_AREA.top;
+      const areaWidth = brain.clientWidth * TEXT_AREA.width;
+      const areaHeight = brain.clientHeight * TEXT_AREA.height;
+      const cellW = areaWidth / cols;
+      const cellH = areaHeight / rows;
+      const tokenSize = Math.max(20, Math.min(31, cellW * 0.66, cellH * 0.82));
+      const counts = {};
+      const context = {
+        ...chars,
+        structure,
+        rand,
+        displayTotal: cells.length,
+        islandA: buildIsland(rand),
+        islandB: buildIsland(rand),
+        extraCell: cells.reduce((best, cell) => {
+          const score = Math.abs(cell.nx - 0.45) + Math.abs(cell.ny + 0.18);
+          return score < best.score ? { cell, score } : best;
+        }, { cell: cells[0], score: Infinity }).cell
+      };
+      const characterPlan = buildCharacterPlan(cells, context);
+
+      brain.style.setProperty("--cell-w", `${cellW}px`);
+      brain.style.setProperty("--cell-h", `${cellH}px`);
+
+      cells.forEach((cell) => {
+        const char = characterPlan.get(cellKey(cell)) || getCharForCell(cell, context);
+        const span = document.createElement("span");
+        const jitterX = (rand() - 0.5) * 0.08;
+        const jitterY = (rand() - 0.5) * 0.08;
+
+        counts[char] = (counts[char] || 0) + 1;
+        span.className = "word-token";
+        span.innerText = char;
+        span.style.left = `${areaLeft + (cell.x + 0.5 + jitterX) * cellW}px`;
+        span.style.top = `${areaTop + (cell.y + 0.5 + jitterY) * cellH}px`;
+        span.style.fontSize = `${tokenSize}px`;
+        span.style.color = KANJI_COLORS[char] || "#000";
+        span.style.transform = `translate(-50%, -50%) rotate(${(rand() - 0.5) * 6}deg)`;
+
+        brain.appendChild(span);
+      });
+
+      setResultNote(structure, chars, counts);
+    }
+
+    document.getElementById("targetName").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") analyze();
+    });
+
+    document.getElementById("analyzeButton").addEventListener("click", analyze);
+
+    window.addEventListener("resize", () => {
+      if (document.getElementById("result-area").style.display === "block") {
+        analyze();
+      }
+    });
+
+  </script>
+</body>
+</html>
